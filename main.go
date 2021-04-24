@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"log"
 	"net/http"
+	"regexp"
 	"os"
 
 	"github.com/coreos/go-oidc"
-	"github.com/gorilla/handlers"
-	"github.com/julienschmidt/httprouter"
 	flag "github.com/spf13/pflag"
 )
 
@@ -50,22 +50,53 @@ func init() {
 }
 
 func main() {
-
-	// set up routes
-	router := httprouter.New()
-	router.GET("/auth/:audience", authHandler)
-
-	// listen
 	addr := fmt.Sprintf("%s:%d", address, port)
-	log.Printf("Listening on %s", addr)
-	log.Fatalln(http.ListenAndServe(addr, handlers.LoggingHandler(os.Stdout, router)))
-
+	http.HandleFunc("/", authHandler)
+	log.Fatalln(http.ListenAndServe(addr, nil))
 }
 
-func authHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func string_to_envkey(lookup string) string {
+	re := regexp.MustCompile(`\W`)
+	return strings.ToUpper(re.ReplaceAllString(lookup, "_"))
+}
 
-	// Get audience from request params
-	audience := ps.ByName("audience")
+func find_env_key(request_domain string, request_resource string) (string, bool) {
+	parts := strings.Split(request_resource, "/")
+
+	audience := ""
+	found := false
+
+	for i:=0; i < len(parts); i++ {
+		thisquery := strings.Trim(request_domain + "/" + strings.Join(parts[:i], "/"), "/")
+		env_key := string_to_envkey(thisquery)
+		this_audience, this_found := os.LookupEnv(env_key)
+		if this_found {
+			audience, found = this_audience, this_found
+		}
+    }
+
+	return audience, found
+}
+
+func authHandler(w http.ResponseWriter, r *http.Request) {
+
+	request_domain := r.Header.Get("X-Forwarded-Host")
+	request_resource := strings.Trim(r.Header.Get("X-Forwarded-Uri"), "/")
+	// request_ip := r.Header.Get("X-Forwarded-For")
+	audience, has_audience := find_env_key(request_domain, request_resource)
+
+	if !has_audience {
+		log.Printf("Audience not found for request %s/%s.", request_domain, request_resource)
+		ix := strings.Index(request_domain, ".")
+		request_domain = request_domain[ix+1:]
+		log.Printf("Falling back to %s", request_domain)
+		audience_, has_audience := os.LookupEnv(string_to_envkey(request_domain))
+		if !has_audience {
+			write(w, http.StatusBadRequest, "(400) Bad Request")
+			return
+		}
+		audience = audience_
+	}
 
 	// Configure verifier
 	config := &oidc.Config{
@@ -77,6 +108,15 @@ func authHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	//  Could also look in the cookies for CF_AUTHORIZATION
 	accessJWT := r.Header.Get("Cf-Access-Jwt-Assertion")
 	if accessJWT == "" {
+		log.Printf("No token on request for %s", request_domain)
+
+		_, bypass := os.LookupEnv(string_to_envkey(request_domain) + "_BYPASS")
+		if bypass {
+			log.Printf("Bypassing checks for %s", request_domain)
+			write(w, http.StatusOK, "OK!")
+			return
+		}
+
 		write(w, http.StatusUnauthorized, "No token on the request")
 		return
 	}
@@ -85,6 +125,7 @@ func authHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
 	idToken, err := verifier.Verify(ctx, accessJWT)
 	if err != nil {
+		log.Printf("Invalid token on request for %s", request_domain)
 		write(w, http.StatusUnauthorized, fmt.Sprintf("Invalid token: %s", err.Error()))
 		return
 	}
@@ -93,15 +134,19 @@ func authHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	claims := Claims{}
 	err = idToken.Claims(&claims)
 	if err != nil {
+		log.Printf("Invalid claims on request for %s", request_domain)
 		write(w, http.StatusUnauthorized, fmt.Sprintf("Invalid claims: %s", err.Error()))
 		return
 	}
 
 	// email is required in claims
 	if claims.Email == "" {
+		log.Printf("Missing email claim on request for %s", request_domain)
 		write(w, http.StatusUnauthorized, "No email in JWT claims")
 		return
 	}
+
+	log.Printf("Authorized request for %s (%s)", request_domain, claims.Email)
 
 	// Request is good to go
 	w.Header().Set("X-Auth-User", claims.Email)

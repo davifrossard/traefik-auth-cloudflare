@@ -23,6 +23,11 @@ services:
     container_name: traefik-auth-cloudflare
     # traefik-auth-cloudflare needs to be configured with your auth-domain
     command: ["--auth-domain", "https://foo.cloudflareaccess.com"]
+    # set audiences in env vars
+    environment:
+      - MY_AWESOME_APP_ORG=12345
+      - MY_AWESOME_APP_ORG_ADMIN=54321
+      - API_MY_AWESOME_APP_ORG_ADMIN=159753
 
   echo:
     image: solsson/http-echo
