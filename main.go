@@ -20,9 +20,10 @@ type Claims struct {
 
 var (
 	// default flag values
-	authDomain = ""
-	address    = ""
-	port       = 80
+	authDomain  = ""
+	address     = ""
+	port        = 80
+	max_recurse = 2
 
 	// jwt signing keys
 	keySet oidc.KeySet
@@ -34,6 +35,7 @@ func init() {
 	flag.StringVar(&authDomain, "auth-domain", authDomain, "authentication domain (https://foo.cloudflareaccess.com)")
 	flag.IntVar(&port, "port", port, "http port to listen on")
 	flag.StringVar(&address, "address", address, "http address to listen on (leave empty to listen on all interfaces)")
+	flag.IntVar(&max_recurse, "max_recurse", max_recurse, "maximum resource match recursion")
 	flag.Parse()
 
 	// --auth-domain is required
@@ -60,28 +62,40 @@ func string_to_envkey(lookup string) string {
 	return strings.ToUpper(re.ReplaceAllString(lookup, "_"))
 }
 
+func MinOf(values ...int) int {
+    min := values[0]
+    for _, val := range values {
+        if val < min {
+            min = val
+        }
+    }
+    return min
+}
+
 func find_env_key(request_domain string, request_resource string) (string, bool) {
 	parts := strings.Split(request_resource, "/")
 
-	audience := ""
-	found := false
+	log.Printf("Find args %s %s", request_domain, request_resource);
+	recurse_depth := MinOf(len(parts), max_recurse)
 
-	for i:=0; i < len(parts); i++ {
-		thisquery := strings.Trim(request_domain + "/" + strings.Join(parts[:i], "/"), "/")
+	for i:=recurse_depth; i >= 0; i-- {
+		thisquery := strings.Trim(request_domain + strings.Join(parts[:i], "/"), "/")
 		env_key := string_to_envkey(thisquery)
+		log.Printf("Querying %s", env_key);
 		this_audience, this_found := os.LookupEnv(env_key)
 		if this_found {
-			audience, found = this_audience, this_found
+			log.Printf("Returning %s", env_key);
+			return this_audience, this_found
 		}
     }
 
-	return audience, found
+	return "", false
 }
 
 func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	request_domain := r.Header.Get("X-Forwarded-Host")
-	request_resource := strings.Trim(r.Header.Get("X-Forwarded-Uri"), "/")
+	request_resource := r.Header.Get("X-Forwarded-Uri")
 	// request_ip := r.Header.Get("X-Forwarded-For")
 	audience, has_audience := find_env_key(request_domain, request_resource)
 
