@@ -44,8 +44,8 @@ services:
       - "traefik.basic.protocol=http"
       # Each request is first forwared to traefik-auth-cloudflare to check the JWT token
       - "traefik.frontend.auth.forward.address=http://traefik-auth-cloudflare/"
-      # Optional: Forward the X-Auth-User header to the backend, which is set by traefik-auth-cloudflare to contain the user email
-      - "traefik.frontend.auth.forward.authResponseHeaders=X-Auth-User"
+      # Optional: Forward the X-Auth-Email header to the backend, which is set by traefik-auth-cloudflare to contain the user email
+      - "traefik.frontend.auth.forward.authResponseHeaders=X-Auth-Email"
 
 networks:
   traefik-auth:

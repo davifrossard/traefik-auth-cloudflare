@@ -49,9 +49,9 @@ $ docker run \
 
 ```bash
 # start your app with auth user forward
-# the http header is `X-Auth-User`
+# the http header is `X-Auth-Email`
 
 $ docker run \
-  --label "traefik.frontend.auth.forward.authResponseHeaders=X-Auth-User" \
+  --label "traefik.frontend.auth.forward.authResponseHeaders=X-Auth-Email" \
   ....
 ```

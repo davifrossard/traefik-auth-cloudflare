@@ -16,6 +16,7 @@ import (
 // Claims stores the values we want to extract from the JWT as JSON
 type Claims struct {
 	Email string `json:"email"`
+	Name string `json:"common_name"`
 }
 
 var (
@@ -146,6 +147,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	// parse the claims
 	claims := Claims{}
+	log.Printf("%s", idToken)
 	err = idToken.Claims(&claims)
 	if err != nil {
 		log.Printf("Invalid claims on request for %s", request_domain)
@@ -154,16 +156,17 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// email is required in claims
-	if claims.Email == "" {
-		log.Printf("Missing email claim on request for %s", request_domain)
-		write(w, http.StatusUnauthorized, "No email in JWT claims")
+	if claims.Email == "" && claims.Name == "" {
+		log.Printf("Missing email/name claim on request for %s", request_domain)
+		write(w, http.StatusUnauthorized, "No email or name in JWT claims")
 		return
 	}
 
-	log.Printf("Authorized request for %s (%s)", request_domain, claims.Email)
+	log.Printf("Authorized request for %s (%s: %s)", request_domain, claims.Name, claims.Email)
 
 	// Request is good to go
-	w.Header().Set("X-Auth-User", claims.Email)
+	w.Header().Set("X-Auth-Email", claims.Email)
+	w.Header().Set("X-Auth-User", claims.Name)
 	write(w, http.StatusOK, "OK!")
 
 }
